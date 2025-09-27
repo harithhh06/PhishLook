@@ -1,55 +1,412 @@
-<!-- Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT License. -->
-<!-- This file shows how to design a first-run page that provides a welcome screen to the user about the features of the add-in. -->
-
 <!DOCTYPE html>
 <html>
-
 <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Contoso Task Pane Add-in</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Email Security Analyzer</title>
+    
+    <!-- Office.js -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    
+    <style>
+        /* Simple, clean styling for the task pane */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    <!-- Office JavaScript API -->
-    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            padding: 20px;
+            height: 100vh;
+            overflow-y: auto;
+        }
 
-    <!-- For more information on Fluent UI, visit https://developer.microsoft.com/fluentui#/. -->
-    <link rel="stylesheet" href="https://res-1.cdn.office.net/files/fabric-cdn-prod_20230815.002/office-ui-fabric-core/11.1.0/css/fabric.min.css"/>
+        .header {
+            background: linear-gradient(135deg, #0078d4, #106ebe);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
 
-    <!-- Template styles -->
-    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+        .header h1 {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .analyze-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .analyze-btn {
+            background: linear-gradient(135deg, #0078d4, #106ebe);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+
+        .analyze-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,120,212,0.3);
+        }
+
+        .analyze-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .test-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .test-btn:hover {
+            background: #218838;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .status.analyzing {
+            background: #fff4e5;
+            color: #d83b01;
+            border: 1px solid #fed9cc;
+        }
+
+        .status.success {
+            background: #dff6dd;
+            color: #107c10;
+            border: 1px solid #9fd89f;
+        }
+
+        .status.error {
+            background: #fde7e9;
+            color: #d13438;
+            border: 1px solid #f1aeb5;
+        }
+
+        /* AI Results Section */
+        .ai-results {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            display: none;
+            animation: slideIn 0.5s ease;
+        }
+
+        .ai-results.show {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from { 
+                opacity: 0; 
+                transform: translateY(20px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0); 
+            }
+        }
+
+        @keyframes scoreAppear {
+            from { 
+                opacity: 0; 
+                transform: scale(0.5); 
+            }
+            to { 
+                opacity: 1; 
+                transform: scale(1); 
+            }
+        }
+
+        .score-section {
+            text-align: center;
+            margin-bottom: 25px;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e1e1e1;
+        }
+
+        .score-circle {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            margin: 0 auto 15px;
+            position: relative;
+        }
+
+        .score-circle.low {
+            background: linear-gradient(135deg, #107c10, #0e6e0e);
+            border: 3px solid #107c10;
+        }
+
+        .score-circle.medium {
+            background: linear-gradient(135deg, #ff8c00, #e07600);
+            border: 3px solid #ff8c00;
+        }
+
+        .score-circle.high {
+            background: linear-gradient(135deg, #d13438, #b02a2f);
+            border: 3px solid #d13438;
+        }
+
+        .score-text {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .risk-level {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .risk-level.low { color: #107c10; }
+        .risk-level.medium { color: #ff8c00; }
+        .risk-level.high { color: #d13438; }
+
+        .explanation-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #0078d4;
+        }
+
+        .explanation-section h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #0078d4;
+        }
+
+        .explanation-text {
+            font-size: 13px;
+            line-height: 1.5;
+            color: #555;
+        }
+
+        .breakdown-section {
+            background: #fff;
+            border: 1px solid #e1e1e1;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .breakdown-section h4 {
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .breakdown-section ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .breakdown-section li {
+            padding: 5px 0;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .breakdown-section li:last-child {
+            border-bottom: none;
+        }
+
+        .breakdown-section li:before {
+            content: "•";
+            color: #d83b01;
+            font-weight: bold;
+        }
+
+        .recommendations-section {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .recommendations-section h3 {
+            color: #1976d2;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .recommendations-section ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .recommendations-section li {
+            padding: 8px 0;
+            font-size: 13px;
+            color: #424242;
+            line-height: 1.4;
+        }
+
+        /* Development helper styles */
+        .dev-section {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .dev-section h3 {
+            color: #856404;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .dev-text {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 10px;
+        }
+
+        /* Responsive design for smaller task panes */
+        @media (max-width: 320px) {
+            body {
+                padding: 10px;
+            }
+            
+            .score-circle {
+                width: 80px;
+                height: 80px;
+                font-size: 18px;
+            }
+            
+            .analyze-btn {
+                padding: 12px 20px;
+                font-size: 14px;
+            }
+        }
+    </style>
 </head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>🤖 AI Email Security Analyzer</h1>
+        <p>Powered by locally trained AI models</p>
+    </div>
 
-<body class="ms-font-m ms-welcome ms-Fabric">
-    <header class="ms-welcome__header ms-bgColor-neutralLighter">
-        <img width="90" height="90" src="../../assets/logo-filled.png" alt="Contoso" title="Contoso" />
-        <h1 class="ms-font-su">Welcome</h1>
-    </header>
-    <section id="sideload-msg" class="ms-welcome__main">
-        <h2 class="ms-font-xl">Please <a target="_blank" href="https://learn.microsoft.com/office/dev/add-ins/testing/test-debug-office-add-ins#sideload-an-office-add-in-for-testing">sideload</a> your add-in to see app body.</h2>
-    </section>
-    <main id="app-body" class="ms-welcome__main" style="display: none;">
-        <h2 class="ms-font-xl"> Discover what Office Add-ins can do for you today! </h2>
-        <ul class="ms-List ms-welcome__features">
-            <li class="ms-ListItem">
-                <i class="ms-Icon ms-Icon--Ribbon ms-font-xl"></i>
-                <span class="ms-font-m">Achieve more with Office integration</span>
-            </li>
-            <li class="ms-ListItem">
-                <i class="ms-Icon ms-Icon--Unlock ms-font-xl"></i>
-                <span class="ms-font-m">Unlock features and functionality</span>
-            </li>
-            <li class="ms-ListItem">
-                <i class="ms-Icon ms-Icon--Design ms-font-xl"></i>
-                <span class="ms-font-m">Create and visualize like a pro</span>
-            </li>
-        </ul>
-        <p class="ms-font-l">Modify the source files, then click <b>Run</b>.</p>
-        <div role="button" id="run" class="ms-welcome__action ms-Button ms-Button--hero ms-font-xl">
-            <span class="ms-Button-label">Run</span>
+    <!-- Development Helper Section -->
+    <div class="dev-section">
+        <h3>🚀 Development Mode</h3>
+        <p class="dev-text">
+            This will analyze the currently selected email in Outlook.<br>
+            Make sure your Node.js backend is running on port 3001.
+        </p>
+        <button class="test-btn" id="test-btn" onclick="testAIAnalysis()">
+            🧪 Test with Sample Email
+        </button>
+    </div>
+
+    <!-- Main Analysis Section -->
+    <div class="analyze-section">
+        <button class="analyze-btn" id="analyze-btn">
+            🤖 Analyze Current Email with AI
+        </button>
+        
+        <!-- Status Messages -->
+        <div class="status" id="status"></div>
+    </div>
+
+    <!-- AI Results Section -->
+    <div class="ai-results" id="ai-results">
+        <!-- Suspicion Score Display -->
+        <div class="score-section">
+            <div class="score-circle low" id="suspicion-score">
+                <span class="score-text" id="score-text">0%</span>
+            </div>
+            <div class="risk-level low" id="risk-level">LOW RISK</div>
+            <div style="font-size: 12px; color: #666;">
+                AI Suspiciousness Rating
+            </div>
         </div>
-        <p><label id="item-subject"></label></p>
-    </main>
-</body>
 
+        <!-- AI Explanation -->
+        <div class="explanation-section">
+            <h3>🤖 AI Analysis Explanation</h3>
+            <div class="explanation-text" id="ai-explanation">
+                The AI is analyzing the email content for suspicious patterns...
+            </div>
+        </div>
+
+        <!-- Detailed Breakdown -->
+        <div class="breakdown-section" id="detailed-breakdown">
+            <h4>🔍 Detailed Analysis</h4>
+            <div>Analysis results will appear here...</div>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="recommendations-section">
+            <h3>💡 Recommendations</h3>
+            <div id="recommendations">
+                <ul>
+                    <li>Analysis recommendations will appear here</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="taskpane.js"></script>
+</body>
 </html>
