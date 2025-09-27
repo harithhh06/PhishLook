@@ -18,11 +18,13 @@ module.exports = async (env, options) => {
     devtool: "source-map",
     entry: {
       polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
-      taskpane: ["./src/taskpane/taskpane.js", "./src/taskpane/taskpane.html"],
+      taskpane: "./src/taskpane/taskpane.js",
       commands: "./src/commands/commands.js",
     },
     output: {
       clean: true,
+      path: require('path').resolve(__dirname, 'dist'),
+      publicPath: "/",
     },
     resolve: {
       extensions: [".html", ".js"],
@@ -55,6 +57,13 @@ module.exports = async (env, options) => {
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
         chunks: ["polyfill", "taskpane"],
+        inject: 'body', // Ensure scripts are injected
+      }),
+      new HtmlWebpackPlugin({
+        filename: "commands.html",
+        template: "./src/commands/commands.html",
+        chunks: ["polyfill", "commands"],
+        inject: 'body',
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -64,7 +73,7 @@ module.exports = async (env, options) => {
           },
           {
             from: "manifest*.xml",
-            to: "[name]" + "[ext]",
+            to: "[name][ext]",
             transform(content) {
               if (dev) {
                 return content;
@@ -75,21 +84,21 @@ module.exports = async (env, options) => {
           },
         ],
       }),
-      new HtmlWebpackPlugin({
-        filename: "commands.html",
-        template: "./src/commands/commands.html",
-        chunks: ["polyfill", "commands"],
-      }),
     ],
     devServer: {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-      },
+      static: './dist',
+      port: 3000,
+      host: 'localhost',
       server: {
         type: "https",
         options: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
       },
-      port: process.env.npm_package_config_dev_server_port || 3000,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+      },
+      devMiddleware: {
+        writeToDisk: true, // Force webpack to write files to disk
+      },
     },
   };
 
