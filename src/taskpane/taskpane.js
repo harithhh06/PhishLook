@@ -103,23 +103,35 @@ function getEmailDataFromOutlook() {
             
             console.log('📧 Getting email subject and body...');
             
-            // Get email body (this is async)
-            item.body.getAsync("text", (bodyResult) => {
-                if (bodyResult.status === Office.AsyncResultStatus.Succeeded) {
+            // Get email body as text first
+            item.body.getAsync("text", (textResult) => {
+                if (textResult.status === Office.AsyncResultStatus.Succeeded) {
                     
-                    // Collect all email data
-                    const emailData = {
-                        subject: item.subject || 'No subject',
-                        body: bodyResult.value || 'No body',
-                        sender: item.from ? item.from.displayName : 'Unknown sender',
-                        senderEmail: item.from ? item.from.emailAddress : 'unknown@example.com'
-                    };
-                    
-                    console.log('📧 Email data collected successfully');
-                    resolve(emailData);
+                    // Also get HTML body for link analysis
+                    item.body.getAsync("html", (htmlResult) => {
+                        let htmlBody = '';
+                        if (htmlResult.status === Office.AsyncResultStatus.Succeeded) {
+                            htmlBody = htmlResult.value || '';
+                            console.log('📧 HTML body retrieved for link analysis');
+                        } else {
+                            console.warn('⚠️ Could not get HTML body, link analysis may be limited');
+                        }
+                        
+                        // Collect all email data
+                        const emailData = {
+                            subject: item.subject || 'No subject',
+                            body: textResult.value || 'No body',
+                            htmlBody: htmlBody, // NEW: HTML body for link analysis
+                            sender: item.from ? item.from.displayName : 'Unknown sender',
+                            senderEmail: item.from ? item.from.emailAddress : 'unknown@example.com'
+                        };
+                        
+                        console.log('📧 Email data collected successfully (with HTML)');
+                        resolve(emailData);
+                    });
                     
                 } else {
-                    console.error('❌ Failed to get email body:', bodyResult.error);
+                    console.error('❌ Failed to get email body:', textResult.error);
                     reject(new Error('Could not read email content. Please try again.'));
                 }
             });
@@ -319,6 +331,44 @@ function updateDetailedBreakdown(details) {
             breakdownHTML += '<div><strong>Language Analysis:</strong> Negative/threatening tone detected</div>';
         }
         
+        // Link analysis (NEW)
+        if (details.linkAnalysis && details.linkAnalysis.totalLinks > 0) {
+            breakdownHTML += '<div class="breakdown-section">';
+            breakdownHTML += `<strong>Link Analysis (${details.linkAnalysis.totalLinks} links found):</strong>`;
+            
+            if (details.linkAnalysis.suspiciousLinks > 0) {
+                breakdownHTML += '<ul>';
+                if (details.linkAnalysis.mismatches > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.mismatches} link text mismatches detected</li>`;
+                }
+                if (details.linkAnalysis.shorteners > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.shorteners} URL shorteners found</li>`;
+                }
+                if (details.linkAnalysis.spoofedDomains > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.spoofedDomains} suspicious domain spoofing attempts</li>`;
+                }
+                if (details.linkAnalysis.suspiciousExtensions > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.suspiciousExtensions} dangerous file downloads</li>`;
+                }
+                breakdownHTML += '</ul>';
+                
+                // Show most suspicious links
+                const highRiskLinks = details.linkAnalysis.details.filter(link => link.riskLevel === 'high');
+                if (highRiskLinks.length > 0) {
+                    breakdownHTML += '<div style="margin-top: 10px;"><strong>⚠️ Most Dangerous Links:</strong>';
+                    breakdownHTML += '<ul>';
+                    highRiskLinks.slice(0, 3).forEach(link => { // Show max 3
+                        const reasons = link.reasons.join(', ');
+                        breakdownHTML += `<li style="font-size: 11px; color: #d13438;"><strong>"${link.anchorText}"</strong> → ${reasons}</li>`;
+                    });
+                    breakdownHTML += '</ul></div>';
+                }
+            } else {
+                breakdownHTML += '<div>✅ All links appear legitimate</div>';
+            }
+            breakdownHTML += '</div>';
+        }
+        
         safeSetHTML('detailed-breakdown', breakdownHTML);
         
     } catch (error) {
@@ -456,6 +506,9 @@ function showStatus(message, type) {
 // TEST FUNCTION (for development)
 // ====================
 
+// Test email counter to cycle through different examples
+let testEmailIndex = 0;
+
 async function testAIAnalysis() {
     console.log('🧪 Running test analysis...');
     
@@ -468,17 +521,70 @@ async function testAIAnalysis() {
         isAnalyzing = true;
         showLoadingState();
         
-        // Test with sample phishing email
-        const testEmail = {
-            subject: 'URGENT: Account Suspension Notice',
-            body: 'Your bank account will be suspended immediately unless you verify your information right away. Click here to update your password and personal details. Act now or lose access forever!',
-            sender: 'Fake Bank Security',
-            senderEmail: 'security@fake-bank.com'
-        };
+        // Different test emails to cycle through
+        const testEmails = [
+            // Test 1: Banking phish with domain spoofing
+            {
+                subject: 'URGENT: DBS Account Suspension Notice',
+                body: 'Your DBS bank account will be suspended immediately unless you verify your information right away.',
+                htmlBody: `
+                    <div>
+                        <p>Dear Customer,</p>
+                        <p>Your <strong>DBS Bank</strong> account will be suspended immediately unless you verify your information.</p>
+                        <p><a href="http://dbs-security-verification.malicious-site.com/verify">Click here to verify your DBS account</a> immediately.</p>
+                        <p>You can also <a href="http://bit.ly/fake-dbs-urgent">download our security app</a> for protection.</p>
+                        <p><a href="http://evil-site.com/banking-malware.exe">Download security patch</a> now!</p>
+                    </div>
+                `,
+                sender: 'DBS Bank Security',
+                senderEmail: 'security@dbs-fake.com'
+            },
+            
+            // Test 2: Government phish with multiple mismatches  
+            {
+                subject: 'IRAS Tax Refund - Action Required',
+                body: 'You have a pending tax refund. Click the link to claim your refund immediately.',
+                htmlBody: `
+                    <div>
+                        <p>Singapore Government - IRAS</p>
+                        <p>You have a <strong>$2,850 tax refund</strong> pending approval.</p>
+                        <p><a href="http://iras-refund-portal.scam-site.org/claim">Visit official IRAS portal</a> to claim now.</p>
+                        <p><a href="http://tinyurl.com/fake-iras-claim">Alternative link</a> if above doesn't work.</p>
+                        <p><a href="https://google.com">Visit Google</a> for more information.</p>
+                    </div>
+                `,
+                sender: 'IRAS Singapore',
+                senderEmail: 'noreply@iras-gov.fake'
+            },
+            
+            // Test 3: Tech support scam
+            {
+                subject: 'Microsoft Security Alert - Immediate Action Required',
+                body: 'Your computer is infected with viruses. Download our security tool immediately.',
+                htmlBody: `
+                    <div>
+                        <h2>Microsoft Security Center</h2>
+                        <p><strong>ALERT:</strong> Your computer is infected with 17 viruses!</p>
+                        <p><a href="http://microsoft-security-fix.malware-site.net/repair">Download Microsoft Security Tool</a> immediately!</p>
+                        <p><a href="http://short.link/ms-fix">Quick fix download</a> available here.</p>
+                        <p><a href="http://fake-microsoft.com/virus-removal.scr">Emergency removal tool</a></p>
+                        <p>Contact our <a href="https://microsoft.com">official support</a> team.</p>
+                    </div>
+                `,
+                sender: 'Microsoft Security Team',
+                senderEmail: 'security@microsoft-alerts.fake'
+            }
+        ];
+        
+        // Get current test email (cycle through)
+        const testEmail = testEmails[testEmailIndex % testEmails.length];
+        testEmailIndex++; // Move to next test for future clicks
+        
+        console.log(`🧪 Testing with scenario ${((testEmailIndex - 1) % testEmails.length) + 1}: ${testEmail.subject}`);
         
         const result = await callAIBackend(testEmail);
         displayAIResults(result);
-        showSuccess('✅ Test analysis complete!');
+        showSuccess(`✅ Test ${((testEmailIndex - 1) % testEmails.length) + 1} complete! Click again for next scenario.`);
         
     } catch (error) {
         console.error('💥 Test failed:', error);

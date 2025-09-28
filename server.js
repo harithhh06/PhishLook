@@ -59,6 +59,13 @@ class SimpleSuspiciousnessDetector {
                 'selected', 'lucky', 'free money', 'inheritance'
             ]
         };
+        
+        // URL patterns for link analysis
+        this.urlPatterns = {
+            shorteners: ['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly'],
+            suspiciousExts: ['.exe', '.scr', '.bat', '.cmd', '.zip'],
+            legitimateDomains: ['google.com', 'microsoft.com', 'dbs.com.sg', 'ocbc.com.sg']
+        };
     }
 
     // Main function to analyze an email
@@ -78,12 +85,16 @@ class SimpleSuspiciousnessDetector {
         const sentimentScore = this.analyzeSentiment(fullText);
         console.log('😊 Sentiment analysis:', sentimentScore);
         
-        // 3. Check for excessive punctuation (!!!, ???)
+        // 3. Analyze links for suspicious patterns
+        const linkAnalysis = this.analyzeLinks(emailData.htmlBody || '');
+        console.log('🔗 Link analysis:', linkAnalysis);
+        
+        // 4. Check for excessive punctuation (!!!, ???)
         const punctuationScore = this.checkPunctuation(fullText);
         console.log('❗ Punctuation score:', punctuationScore);
         
-        // 4. Calculate overall suspiciousness (0 to 1 scale)
-        const suspicionScore = this.calculateOverallScore(patternScores, sentimentScore, punctuationScore);
+        // 5. Calculate overall suspiciousness (0 to 1 scale)
+        const suspicionScore = this.calculateOverallScore(patternScores, sentimentScore, punctuationScore, linkAnalysis);
         console.log('🎯 Final suspicion score:', suspicionScore);
         
         // 5. Determine risk level
@@ -100,7 +111,8 @@ class SimpleSuspiciousnessDetector {
             details: {
                 patternMatches: patternScores,
                 sentiment: sentimentScore,
-                punctuation: punctuationScore
+                punctuation: punctuationScore,
+                linkAnalysis: linkAnalysis
             }
         };
     }
@@ -173,25 +185,122 @@ class SimpleSuspiciousnessDetector {
         return Math.min(score, 1); // Cap at 1
     }
 
+    // Simple link analysis for Feature 1
+    analyzeLinks(htmlBody) {
+        if (!htmlBody) {
+            return { totalLinks: 0, suspiciousLinks: 0, suspicionScore: 0, details: [] };
+        }
+
+        const linkRegex = /<a[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
+        const links = [];
+        let match;
+        
+        while ((match = linkRegex.exec(htmlBody)) !== null) {
+            const url = match[1];
+            const text = match[2].replace(/<[^>]*>/g, '').trim();
+            links.push({ url, text });
+        }
+
+        let suspiciousCount = 0;
+        const linkDetails = [];
+
+        for (const link of links) {
+            const isSuspicious = this.isLinkSuspicious(link);
+            if (isSuspicious.suspicious) {
+                suspiciousCount++;
+            }
+            linkDetails.push({
+                url: link.url,
+                anchorText: link.text,
+                isSuspicious: isSuspicious.suspicious,
+                reasons: isSuspicious.reasons
+            });
+        }
+
+        return {
+            totalLinks: links.length,
+            suspiciousLinks: suspiciousCount,
+            mismatches: linkDetails.filter(l => l.reasons.includes('text_mismatch')).length,
+            shorteners: linkDetails.filter(l => l.reasons.includes('url_shortener')).length,
+            suspiciousExtensions: linkDetails.filter(l => l.reasons.includes('suspicious_extension')).length,
+            suspicionScore: links.length > 0 ? suspiciousCount / links.length : 0,
+            details: linkDetails
+        };
+    }
+
+    isLinkSuspicious(link) {
+        const reasons = [];
+        
+        // Check for text mismatch
+        if (this.hasTextMismatch(link.text, link.url)) {
+            reasons.push('text_mismatch');
+        }
+        
+        // Check for URL shorteners
+        if (this.urlPatterns.shorteners.some(s => link.url.includes(s))) {
+            reasons.push('url_shortener');
+        }
+        
+        // Check for suspicious extensions
+        if (this.urlPatterns.suspiciousExts.some(ext => link.url.includes(ext))) {
+            reasons.push('suspicious_extension');
+        }
+
+        return {
+            suspicious: reasons.length > 0,
+            reasons: reasons
+        };
+    }
+
+    hasTextMismatch(text, url) {
+        if (!text || !url) return false;
+        
+        // Skip generic text
+        const generic = ['click here', 'read more', 'download', 'continue'];
+        if (generic.some(g => text.toLowerCase().includes(g))) return false;
+        
+        try {
+            const urlObj = new URL(url.startsWith('http') ? url : 'http://' + url);
+            const domain = urlObj.hostname.toLowerCase();
+            
+            // Check if text mentions a different domain
+            const domainRegex = /([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/g;
+            const textDomains = text.match(domainRegex);
+            
+            if (textDomains) {
+                return textDomains.some(td => !domain.includes(td.toLowerCase()));
+            }
+        } catch (e) {
+            return false;
+        }
+        
+        return false;
+    }
+
     // Combine all scores into final suspiciousness rating
-    calculateOverallScore(patternScores, sentimentScore, punctuationScore) {
+    calculateOverallScore(patternScores, sentimentScore, punctuationScore, linkAnalysis) {
         // Weight different factors
         const weights = {
-            patterns: 0.5,    // 50% - most important
-            sentiment: 0.3,   // 30% - emotional manipulation
-            punctuation: 0.2  // 20% - aggressive formatting
+            patterns: 0.4,    // 40% - text patterns
+            sentiment: 0.25,  // 25% - emotional manipulation
+            punctuation: 0.15, // 15% - aggressive formatting
+            links: 0.2       // 20% - suspicious links (NEW)
         };
         
-        // Normalize pattern score (more patterns = more suspicious)
+        // Normalize pattern score
         const normalizedPatterns = Math.min(patternScores.total / 10, 1);
+        
+        // Get link score
+        const linkScore = linkAnalysis ? linkAnalysis.suspicionScore : 0;
         
         // Calculate weighted average
         const totalScore = 
             (normalizedPatterns * weights.patterns) +
             (sentimentScore.suspiciousness * weights.sentiment) +
-            (punctuationScore * weights.punctuation);
+            (punctuationScore * weights.punctuation) +
+            (linkScore * weights.links);
         
-        return Math.min(totalScore, 1); // Ensure it stays 0-1
+        return Math.min(totalScore, 1);
     }
 
     // Convert numeric score to risk level
