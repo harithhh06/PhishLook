@@ -103,23 +103,53 @@ function getEmailDataFromOutlook() {
             
             console.log('📧 Getting email subject and body...');
             
-            // Get email body (this is async)
-            item.body.getAsync("text", (bodyResult) => {
-                if (bodyResult.status === Office.AsyncResultStatus.Succeeded) {
+            // Get email body as text first
+            item.body.getAsync("text", (textResult) => {
+                if (textResult.status === Office.AsyncResultStatus.Succeeded) {
                     
-                    // Collect all email data
-                    const emailData = {
-                        subject: item.subject || 'No subject',
-                        body: bodyResult.value || 'No body',
-                        sender: item.from ? item.from.displayName : 'Unknown sender',
-                        senderEmail: item.from ? item.from.emailAddress : 'unknown@example.com'
-                    };
-                    
-                    console.log('📧 Email data collected successfully');
-                    resolve(emailData);
+                    // Also get HTML body for link analysis
+                    item.body.getAsync("html", (htmlResult) => {
+                        let htmlBody = '';
+                        if (htmlResult.status === Office.AsyncResultStatus.Succeeded) {
+                            htmlBody = htmlResult.value || '';
+                            console.log('📧 HTML body retrieved for link analysis');
+                        } else {
+                            console.warn('⚠️ Could not get HTML body, link analysis may be limited');
+                        }
+                        
+                        // Extract attachment information (NEW: for Feature 5)
+                        const attachments = [];
+                        if (item.attachments && item.attachments.length > 0) {
+                            console.log(`📎 Found ${item.attachments.length} attachments`);
+                            
+                            for (let i = 0; i < item.attachments.length; i++) {
+                                const attachment = item.attachments[i];
+                                attachments.push({
+                                    name: attachment.name || 'unnamed',
+                                    size: attachment.size || 0,
+                                    contentType: attachment.contentType || 'unknown',
+                                    isInline: attachment.isInline || false
+                                });
+                                console.log(`📎 Attachment ${i + 1}: ${attachment.name} (${attachment.size} bytes)`);
+                            }
+                        }
+                        
+                        // Collect all email data
+                        const emailData = {
+                            subject: item.subject || 'No subject',
+                            body: textResult.value || 'No body',
+                            htmlBody: htmlBody, // HTML body for link analysis
+                            attachments: attachments, // NEW: Attachment info for analysis
+                            sender: item.from ? item.from.displayName : 'Unknown sender',
+                            senderEmail: item.from ? item.from.emailAddress : 'unknown@example.com'
+                        };
+                        
+                        console.log('📧 Email data collected successfully (with HTML)');
+                        resolve(emailData);
+                    });
                     
                 } else {
-                    console.error('❌ Failed to get email body:', bodyResult.error);
+                    console.error('❌ Failed to get email body:', textResult.error);
                     reject(new Error('Could not read email content. Please try again.'));
                 }
             });
@@ -319,6 +349,83 @@ function updateDetailedBreakdown(details) {
             breakdownHTML += '<div><strong>Language Analysis:</strong> Negative/threatening tone detected</div>';
         }
         
+        // Link analysis (NEW)
+        if (details.linkAnalysis && details.linkAnalysis.totalLinks > 0) {
+            breakdownHTML += '<div class="breakdown-section">';
+            breakdownHTML += `<strong>Link Analysis (${details.linkAnalysis.totalLinks} links found):</strong>`;
+            
+            if (details.linkAnalysis.suspiciousLinks > 0) {
+                breakdownHTML += '<ul>';
+                if (details.linkAnalysis.mismatches > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.mismatches} link text mismatches detected</li>`;
+                }
+                if (details.linkAnalysis.shorteners > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.shorteners} URL shorteners found</li>`;
+                }
+                if (details.linkAnalysis.spoofedDomains > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.spoofedDomains} suspicious domain spoofing attempts</li>`;
+                }
+                if (details.linkAnalysis.suspiciousExtensions > 0) {
+                    breakdownHTML += `<li>🔗 ${details.linkAnalysis.suspiciousExtensions} dangerous file downloads</li>`;
+                }
+                breakdownHTML += '</ul>';
+                
+                // Show most suspicious links
+                const highRiskLinks = details.linkAnalysis.details.filter(link => link.riskLevel === 'high');
+                if (highRiskLinks.length > 0) {
+                    breakdownHTML += '<div style="margin-top: 10px;"><strong>⚠️ Most Dangerous Links:</strong>';
+                    breakdownHTML += '<ul>';
+                    highRiskLinks.slice(0, 3).forEach(link => { // Show max 3
+                        const reasons = link.reasons.join(', ');
+                        breakdownHTML += `<li style="font-size: 11px; color: #d13438;"><strong>"${link.anchorText}"</strong> → ${reasons}</li>`;
+                    });
+                    breakdownHTML += '</ul></div>';
+                }
+            } else {
+                breakdownHTML += '<div>✅ All links appear legitimate</div>';
+            }
+            breakdownHTML += '</div>';
+        }
+        
+        // Attachment analysis (NEW - Feature 5)
+        if (details.attachmentAnalysis && details.attachmentAnalysis.totalAttachments > 0) {
+            breakdownHTML += '<div class="breakdown-section">';
+            breakdownHTML += `<strong>Attachment Analysis (${details.attachmentAnalysis.totalAttachments} files found):</strong>`;
+            
+            if (details.attachmentAnalysis.suspiciousAttachments > 0) {
+                breakdownHTML += '<ul>';
+                if (details.attachmentAnalysis.dangerousFiles > 0) {
+                    breakdownHTML += `<li>📎 ${details.attachmentAnalysis.dangerousFiles} dangerous executable files</li>`;
+                }
+                if (details.attachmentAnalysis.scriptFiles > 0) {
+                    breakdownHTML += `<li>📎 ${details.attachmentAnalysis.scriptFiles} suspicious script files</li>`;
+                }
+                if (details.attachmentAnalysis.archiveFiles > 0) {
+                    breakdownHTML += `<li>📎 ${details.attachmentAnalysis.archiveFiles} archive files (can hide malware)</li>`;
+                }
+                if (details.attachmentAnalysis.suspiciousNames > 0) {
+                    breakdownHTML += `<li>📎 ${details.attachmentAnalysis.suspiciousNames} files with suspicious names</li>`;
+                }
+                breakdownHTML += '</ul>';
+                
+                // Show most dangerous attachments
+                const highRiskAttachments = details.attachmentAnalysis.details.filter(att => att.riskLevel === 'high');
+                if (highRiskAttachments.length > 0) {
+                    breakdownHTML += '<div style="margin-top: 10px;"><strong>🚨 Most Dangerous Files:</strong>';
+                    breakdownHTML += '<ul>';
+                    highRiskAttachments.slice(0, 3).forEach(att => { // Show max 3
+                        const reasons = att.reasons.join(', ');
+                        const sizeStr = att.size > 0 ? ` (${Math.round(att.size / 1024)}KB)` : '';
+                        breakdownHTML += `<li style="font-size: 11px; color: #d13438;"><strong>${att.filename}${sizeStr}</strong> → ${reasons}</li>`;
+                    });
+                    breakdownHTML += '</ul></div>';
+                }
+            } else {
+                breakdownHTML += '<div>✅ All attachments appear safe</div>';
+            }
+            breakdownHTML += '</div>';
+        }
+        
         safeSetHTML('detailed-breakdown', breakdownHTML);
         
     } catch (error) {
@@ -456,6 +563,9 @@ function showStatus(message, type) {
 // TEST FUNCTION (for development)
 // ====================
 
+// Test email counter to cycle through different examples
+let testEmailIndex = 0;
+
 async function testAIAnalysis() {
     console.log('🧪 Running test analysis...');
     
@@ -468,17 +578,251 @@ async function testAIAnalysis() {
         isAnalyzing = true;
         showLoadingState();
         
-        // Test with sample phishing email
-        const testEmail = {
-            subject: 'URGENT: Account Suspension Notice',
-            body: 'Your bank account will be suspended immediately unless you verify your information right away. Click here to update your password and personal details. Act now or lose access forever!',
-            sender: 'Fake Bank Security',
-            senderEmail: 'security@fake-bank.com'
-        };
+        // Different test emails to cycle through
+        const testEmails = [
+            // Test 1: Banking phish with domain spoofing + suspicious attachments
+            {
+                subject: 'URGENT: DBS Account Suspension Notice',
+                body: 'Your DBS bank account will be suspended immediately unless you verify your information right away.',
+                htmlBody: `
+                    <div>
+                        <p>Dear Customer,</p>
+                        <p>Your <strong>DBS Bank</strong> account will be suspended immediately unless you verify your information.</p>
+                        <p><a href="http://dbs-security-verification.malicious-site.com/verify">Click here to verify your DBS account</a> immediately.</p>
+                        <p>You can also <a href="http://bit.ly/fake-dbs-urgent">download our security app</a> for protection.</p>
+                        <p><a href="http://evil-site.com/banking-malware.exe">Download security patch</a> now!</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'urgent_banking_update.exe', size: 2048576, contentType: 'application/octet-stream' },
+                    { name: 'invoice.pdf.scr', size: 1024, contentType: 'application/octet-stream' }
+                ],
+                sender: 'DBS Bank Security',
+                senderEmail: 'security@dbs-fake.com'
+            },
+            
+            // Test 2: Government phish with archive attachment 
+            {
+                subject: 'IRAS Tax Refund - Action Required',
+                body: 'You have a pending tax refund. Click the link to claim your refund immediately.',
+                htmlBody: `
+                    <div>
+                        <p>Singapore Government - IRAS</p>
+                        <p>You have a <strong>$2,850 tax refund</strong> pending approval.</p>
+                        <p><a href="http://iras-refund-portal.scam-site.org/claim">Visit official IRAS portal</a> to claim now.</p>
+                        <p><a href="http://tinyurl.com/fake-iras-claim">Alternative link</a> if above doesn't work.</p>
+                        <p><a href="https://google.com">Visit Google</a> for more information.</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'tax_refund_documents.zip', size: 5120000, contentType: 'application/zip' },
+                    { name: 'IRAS_form.pdf', size: 245760, contentType: 'application/pdf' }
+                ],
+                sender: 'IRAS Singapore',
+                senderEmail: 'noreply@iras-gov.fake'
+            },
+            
+            // Test 3: Tech support scam with dangerous scripts
+            {
+                subject: 'Microsoft Security Alert - Immediate Action Required',
+                body: 'Your computer is infected with viruses. Download our security tool immediately.',
+                htmlBody: `
+                    <div>
+                        <h2>Microsoft Security Center</h2>
+                        <p><strong>ALERT:</strong> Your computer is infected with 17 viruses!</p>
+                        <p><a href="http://microsoft-security-fix.malware-site.net/repair">Download Microsoft Security Tool</a> immediately!</p>
+                        <p><a href="http://short.link/ms-fix">Quick fix download</a> available here.</p>
+                        <p><a href="http://fake-microsoft.com/virus-removal.scr">Emergency removal tool</a></p>
+                        <p>Contact our <a href="https://microsoft.com">official support</a> team.</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'security_scanner.bat', size: 8192, contentType: 'text/plain' },
+                    { name: 'microsoft_patch.vbs', size: 4096, contentType: 'text/vbscript' },
+                    { name: 'important_document.doc', size: 98304, contentType: 'application/msword' }
+                ],
+                sender: 'Microsoft Security Team',
+                senderEmail: 'security@microsoft-alerts.fake'
+            },
+            
+            // Test 4: Cryptocurrency scam with multiple red flags
+            {
+                subject: 'CONGRATULATIONS! You Won $50,000 Bitcoin Prize!',
+                body: 'You have been selected as our lucky winner! Claim your Bitcoin prize immediately before it expires!',
+                htmlBody: `
+                    <div>
+                        <h1>🎉 BITCOIN LOTTERY WINNER! 🎉</h1>
+                        <p><strong>CONGRATULATIONS!</strong> You won <strong>$50,000 worth of Bitcoin!</strong></p>
+                        <p><a href="http://bitcoin-winners.scam-crypto.net/claim">Click here to claim your Bitcoin prize</a> before midnight!</p>
+                        <p><a href="http://t.co/fake-crypto-win">Share on Twitter</a> to get bonus coins!</p>
+                        <p><a href="http://malicious-crypto.com/wallet-stealer.exe">Download secure wallet</a> to receive your coins.</p>
+                        <p>Winners must <a href="http://verify-identity.crypto-scam.org/kyc">verify identity</a> within 24 hours!</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'bitcoin_wallet_setup.exe', size: 15728640, contentType: 'application/octet-stream' },
+                    { name: 'winner_certificate.pdf', size: 512000, contentType: 'application/pdf' }
+                ],
+                sender: 'Bitcoin Lottery International',
+                senderEmail: 'winner@bitcoin-lottery.fake'
+            },
+            
+            // Test 5: PayPal phishing with sophisticated spoofing
+            {
+                subject: 'Your PayPal Account Has Been Limited',
+                body: 'We detected unusual activity on your PayPal account. Verify your information to restore full access.',
+                htmlBody: `
+                    <div style="font-family: Arial; max-width: 600px;">
+                        <img src="https://www.paypal.com/logo.png" alt="PayPal" style="width: 100px;">
+                        <h2>Account Security Alert</h2>
+                        <p>Dear PayPal Customer,</p>
+                        <p>We've detected <strong>suspicious activity</strong> on your account and have temporarily limited access.</p>
+                        <p><a href="http://paypal-security-verify.phishing-site.com/login">Verify your PayPal account</a> to restore access immediately.</p>
+                        <p>You can also <a href="http://ow.ly/paypal-restore">restore access via mobile</a> using our app.</p>
+                        <p>If you don't verify within 48 hours, your account will be <strong>permanently suspended</strong>.</p>
+                        <p>Best regards,<br>PayPal Security Team</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'paypal_verification_form.pdf.exe', size: 2048, contentType: 'application/octet-stream' },
+                    { name: 'account_statement.zip', size: 1024000, contentType: 'application/zip' }
+                ],
+                sender: 'PayPal Security',
+                senderEmail: 'security@paypal.com.fake-domain.org'
+            },
+            
+            // Test 6: COVID-19 themed scam (social engineering)
+            {
+                subject: 'URGENT: COVID-19 Vaccine Certificate Required',
+                body: 'New government mandate requires immediate vaccine certificate verification or face penalties.',
+                htmlBody: `
+                    <div>
+                        <h3>🏥 Ministry of Health Singapore</h3>
+                        <p><strong>URGENT NOTICE:</strong> New regulations require all citizens to verify their COVID-19 vaccination status.</p>
+                        <p><a href="http://moh-vaccine-verify.fake-gov.sg/check">Verify your vaccination status</a> on our official portal.</p>
+                        <p>Failure to comply within 7 days will result in <strong>$1,000 fine</strong>.</p>
+                        <p><a href="http://goo.gl/moh-fake-download">Download TraceTogether update</a> for automatic verification.</p>
+                        <p>Questions? Contact our <a href="mailto:help@fake-moh.sg">support team</a>.</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'TraceTogether_Update.apk', size: 8388608, contentType: 'application/vnd.android.package-archive' },
+                    { name: 'vaccination_form.doc', size: 204800, contentType: 'application/msword' },
+                    { name: 'install_certificate.bat', size: 512, contentType: 'text/plain' }
+                ],
+                sender: 'Ministry of Health',
+                senderEmail: 'noreply@moh.gov.sg.fake'
+            },
+            
+            // Test 7: Amazon fake order with malicious attachments
+            {
+                subject: 'Your Amazon Order #AMZ-7429851 Has Shipped',
+                body: 'Your recent Amazon purchase has been shipped. Track your package and download the receipt.',
+                htmlBody: `
+                    <div>
+                        <h2>📦 Amazon Order Confirmation</h2>
+                        <p>Dear Customer,</p>
+                        <p>Your order for <strong>iPhone 15 Pro Max (256GB)</strong> has been shipped!</p>
+                        <p><a href="http://amazon-tracking.delivery-scam.net/track">Track your package</a> here.</p>
+                        <p><a href="http://bit.ly/amazon-receipt-fake">Download invoice</a> for your records.</p>
+                        <p>If you didn't place this order, <a href="http://amazon-security.fake-site.org/cancel">cancel immediately</a>!</p>
+                        <p>Delivery expected: Tomorrow</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'amazon_invoice.pdf.exe', size: 4096, contentType: 'application/octet-stream' },
+                    { name: 'tracking_info.js', size: 2048, contentType: 'application/javascript' },
+                    { name: 'delivery_confirmation.rar', size: 1536000, contentType: 'application/x-rar-compressed' }
+                ],
+                sender: 'Amazon Shipping',
+                senderEmail: 'shipment@amazon.com.delivery.fake'
+            },
+            
+            // Test 8: Legitimate-looking email (should score LOW)
+            {
+                subject: 'Monthly Newsletter - September 2025',
+                body: 'Here are the latest updates from our team. Thanks for being a valued subscriber.',
+                htmlBody: `
+                    <div>
+                        <h2>Company Newsletter - September 2025</h2>
+                        <p>Dear Subscriber,</p>
+                        <p>Thank you for being part of our community. Here are this month's highlights:</p>
+                        <p>• New product features released</p>
+                        <p>• Upcoming webinar series</p>
+                        <p>• Customer success stories</p>
+                        <p><a href="https://company.com/newsletter">Read full newsletter</a> on our website.</p>
+                        <p><a href="https://company.com/unsubscribe">Unsubscribe</a> if you no longer wish to receive updates.</p>
+                        <p>Best regards,<br>The Company Team</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'newsletter_september_2025.pdf', size: 2048000, contentType: 'application/pdf' },
+                    { name: 'company_brochure.jpg', size: 512000, contentType: 'image/jpeg' }
+                ],
+                sender: 'Company Newsletter',
+                senderEmail: 'newsletter@company.com'
+            },
+            
+            // Test 9: Romance scam with emotional manipulation
+            {
+                subject: 'My Dearest Love, I Need Your Help Urgently',
+                body: 'My darling, I am in trouble and need your immediate assistance. Please help me transfer some money.',
+                htmlBody: `
+                    <div>
+                        <p>My Dearest Love,</p>
+                        <p>I hope this email finds you well. I am writing to you with tears in my eyes because I am in <strong>desperate need</strong> of your help.</p>
+                        <p>I am currently stranded in Nigeria due to a medical emergency and need <strong>$5,000</strong> to get home.</p>
+                        <p><a href="http://moneytransfer-help.scam-romance.org/send">Click here to send money</a> through our secure portal.</p>
+                        <p>I promise to pay you back <strong>$50,000</strong> when I return home as I recently inherited a large fortune.</p>
+                        <p><a href="http://inheritance-documents.fake-legal.net/view">View inheritance documents</a> as proof.</p>
+                        <p>Please hurry, time is running out!</p>
+                        <p>All my love,<br>Sarah Johnson</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'inheritance_certificate.pdf.exe', size: 1024, contentType: 'application/octet-stream' },
+                    { name: 'medical_documents.zip', size: 3072000, contentType: 'application/zip' },
+                    { name: 'bank_transfer_form.vbs', size: 8192, contentType: 'text/vbscript' }
+                ],
+                sender: 'Sarah Johnson',
+                senderEmail: 'sarah.johnson.love@romance-scam.fake'
+            },
+            
+            // Test 10: Fake job offer with credential harvesting
+            {
+                subject: 'Job Offer: Senior Developer Position - $150,000/year',
+                body: 'Congratulations! You have been selected for a high-paying remote developer position. Complete the application immediately.',
+                htmlBody: `
+                    <div>
+                        <h2>🎯 Dream Job Opportunity!</h2>
+                        <p>Dear Future Employee,</p>
+                        <p><strong>Congratulations!</strong> You have been selected for our <strong>Senior Developer position</strong> with a salary of <strong>$150,000/year</strong>!</p>
+                        <p>This is a <strong>100% remote position</strong> with amazing benefits!</p>
+                        <p><a href="http://fake-jobs.career-scam.net/apply">Complete your application</a> within 24 hours to secure this position.</p>
+                        <p><a href="http://tinyurl.com/fake-job-contract">Download employment contract</a> and sign immediately.</p>
+                        <p>We need your personal information including SSN and bank details for payroll setup.</p>
+                        <p>Act fast - this opportunity won't last!</p>
+                    </div>
+                `,
+                attachments: [
+                    { name: 'employment_contract.pdf.scr', size: 2048, contentType: 'application/octet-stream' },
+                    { name: 'job_application_form.exe', size: 16384, contentType: 'application/octet-stream' },
+                    { name: 'company_handbook.zip', size: 10485760, contentType: 'application/zip' }
+                ],
+                sender: 'HR Department - TechCorp',
+                senderEmail: 'hr@techcorp-fake-jobs.scam'
+            }
+        ];
+        
+        // Get current test email (cycle through)
+        const testEmail = testEmails[testEmailIndex % testEmails.length];
+        testEmailIndex++; // Move to next test for future clicks
+        
+        console.log(`🧪 Testing with scenario ${((testEmailIndex - 1) % testEmails.length) + 1}: ${testEmail.subject}`);
         
         const result = await callAIBackend(testEmail);
         displayAIResults(result);
-        showSuccess('✅ Test analysis complete!');
+        showSuccess(`✅ Test ${((testEmailIndex - 1) % testEmails.length) + 1} complete! Click again for next scenario.`);
         
     } catch (error) {
         console.error('💥 Test failed:', error);

@@ -97,8 +97,17 @@ module.exports = async (env, options) => {
         "Access-Control-Allow-Origin": "*",
       },
       devMiddleware: {
-        writeToDisk: true, // Force webpack to write files to disk
+        writeToDisk: false, // Disable writing to disk to prevent refresh loops
       },
+      watchFiles: {
+        paths: ['src/**/*'],
+        options: {
+          usePolling: false,
+          interval: 1000, // Check for changes every 1 second instead of constantly
+        },
+      },
+      liveReload: true,
+      hot: true,
     },
   };
 
