@@ -23,7 +23,7 @@ module.exports = async (env, options) => {
     },
     output: {
       clean: true,
-      path: require('path').resolve(__dirname, 'dist'),
+      path: require("path").resolve(__dirname, "dist"),
       publicPath: "/",
     },
     resolve: {
@@ -57,13 +57,13 @@ module.exports = async (env, options) => {
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
         chunks: ["polyfill", "taskpane"],
-        inject: 'body', // Ensure scripts are injected
+        inject: "body", // Ensure scripts are injected
       }),
       new HtmlWebpackPlugin({
         filename: "commands.html",
         template: "./src/commands/commands.html",
         chunks: ["polyfill", "commands"],
-        inject: 'body',
+        inject: "body",
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -86,9 +86,9 @@ module.exports = async (env, options) => {
       }),
     ],
     devServer: {
-      static: './dist',
+      static: "./dist",
       port: 3000,
-      host: 'localhost',
+      host: "localhost",
       server: {
         type: "https",
         options:
