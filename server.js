@@ -6,6 +6,8 @@ const nlp = require("compromise"); // Text processing
 const https = require("https");
 const querystring = require("querystring");
 const devCerts = require("office-addin-dev-certs");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const PORT = 3001; // Different port from your Office dev server
@@ -14,6 +16,101 @@ const PHISHTANK_USER_AGENT =
   process.env.PHISHTANK_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PhishLook/1.0";
 // URLHaus v1 API endpoint for URL lookups
 const URLHAUS_API_BASE = "https://urlhaus-api.abuse.ch/v1/url/";
+
+// ====================
+// LOCAL PHISHING DB (phishing_database.json)
+// ====================
+const LOCAL_DB_PATH = path.join(__dirname, "phishing_database.json");
+let localDbStats = { loaded: false, records: 0, indexSize: 0, lastLoaded: null };
+// Map of multiple normalized url keys -> record
+const phishUrlIndex = new Map();
+
+function decodeEntities(str) {
+  if (!str || typeof str !== "string") return str;
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function buildIndexKeys(rawUrl) {
+  const keys = new Set();
+  if (!rawUrl || typeof rawUrl !== "string") return Array.from(keys);
+  const trimmed = rawUrl.trim();
+  const decoded = decodeEntities(trimmed);
+
+  const candidates = new Set([trimmed, decoded]);
+
+  for (const c of candidates) {
+    if (!c) continue;
+    keys.add(c);
+    try {
+      const hasScheme = /^(https?:)?\/\//i.test(c);
+      const toParse = hasScheme ? c : `http://${c}`;
+      const u = new URL(toParse);
+      const hostLower = u.hostname.toLowerCase();
+      const protoLower = (u.protocol || "").toLowerCase();
+      const pathname = u.pathname || "/";
+      const search = u.search || "";
+      const canonical = `${protoLower}//${hostLower}${pathname}${search}`;
+      // protocol-neutral form (helps http vs https mismatches)
+      const schemeAgnostic = `//${hostLower}${pathname}${search}`;
+      keys.add(canonical);
+      keys.add(schemeAgnostic);
+
+      // toggle trailing slash variant (if not just root)
+      if (pathname !== "/") {
+        if (pathname.endsWith("/")) {
+          const noSlash = pathname.replace(/\/+$/, "");
+          keys.add(`${protoLower}//${hostLower}${noSlash}${search}`);
+          keys.add(`//${hostLower}${noSlash}${search}`);
+        } else {
+          keys.add(`${protoLower}//${hostLower}${pathname}/${search}`.replace(/\?\//, "/?"));
+          keys.add(`//${hostLower}${pathname}/${search}`.replace(/\?\//, "/?"));
+        }
+      }
+    } catch (_) {
+      // ignore parse errors
+    }
+  }
+  return Array.from(keys);
+}
+
+function addRecordToIndex(record) {
+  const url = record && record.url;
+  if (!url) return;
+  const keys = buildIndexKeys(url);
+  for (const k of keys) {
+    if (!phishUrlIndex.has(k)) {
+      phishUrlIndex.set(k, record);
+    }
+  }
+}
+
+function loadLocalPhishDb() {
+  try {
+    const raw = fs.readFileSync(LOCAL_DB_PATH, "utf8");
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) throw new Error("phishing_database.json is not an array");
+    phishUrlIndex.clear();
+    for (const rec of arr) addRecordToIndex(rec);
+    localDbStats.loaded = true;
+    localDbStats.records = arr.length;
+    localDbStats.indexSize = phishUrlIndex.size;
+    localDbStats.lastLoaded = new Date().toISOString();
+    console.log(
+      `📚 Local phishing DB loaded: ${localDbStats.records} records, ${localDbStats.indexSize} indexed keys.`
+    );
+  } catch (e) {
+    localDbStats.loaded = false;
+    localDbStats.records = 0;
+    localDbStats.indexSize = 0;
+    localDbStats.lastLoaded = null;
+    console.warn(`⚠️ Failed to load local phishing DB at ${LOCAL_DB_PATH}: ${e.message}`);
+  }
+}
 
 // Enable CORS for your Outlook add-in
 app.use(
@@ -546,6 +643,7 @@ app.get("/health", (req, res) => {
     status: "healthy",
     message: "AI Suspiciousness Detection API is running",
     timestamp: new Date().toISOString(),
+    localDb: localDbStats,
   });
 });
 
@@ -636,13 +734,15 @@ async function startServer() {
         app
       )
       .listen(PORT, () => {
+        // Load local phishing DB on startup
+        loadLocalPhishDb();
         console.log("\n🎉 AI Suspiciousness Detection Server Started (HTTPS)!");
         console.log(`📍 Server running at: https://localhost:${PORT}`);
         console.log(`🔍 Health check: https://localhost:${PORT}/health`);
         console.log(`🧪 Test endpoint: https://localhost:${PORT}/api/test`);
         console.log("\n📋 Available endpoints:");
         console.log("  POST /api/analyze-suspiciousness - Main analysis");
-        console.log("  POST /phishlink - PhishTank checks + URLHaus fallback");
+        console.log("  POST /phishlink - Local phishing_database.json lookup");
         console.log("  GET  /health - Health check");
         console.log("  GET  /api/test - Test with sample data");
         console.log("\n🚀 Ready to analyze emails!\n");
@@ -650,13 +750,15 @@ async function startServer() {
   } catch (e) {
     console.warn("⚠️ HTTPS dev cert not available, falling back to HTTP:", e.message);
     app.listen(PORT, () => {
+      // Load local phishing DB on startup
+      loadLocalPhishDb();
       console.log("\n🎉 AI Suspiciousness Detection Server Started (HTTP fallback)!");
       console.log(`📍 Server running at: http://localhost:${PORT}`);
       console.log(`🔍 Health check: http://localhost:${PORT}/health`);
       console.log(`🧪 Test endpoint: http://localhost:${PORT}/api/test`);
       console.log("\n📋 Available endpoints:");
       console.log("  POST /api/analyze-suspiciousness - Main analysis");
-      console.log("  POST /phishlink - PhishTank checks + URLHaus fallback");
+      console.log("  POST /phishlink - Local phishing_database.json lookup");
       console.log("  GET  /health - Health check");
       console.log("  GET  /api/test - Test with sample data");
       console.log("\n🚀 Ready to analyze emails!\n");
@@ -695,82 +797,81 @@ app.post("/phishlink", async (req, res) => {
       });
     }
 
+    if (!localDbStats.loaded) {
+      console.warn("⚠️ /phishlink called but local DB is not loaded.");
+      // We still process and return not-found results to keep client flow working
+    }
+
     // Deduplicate and sanitize
     const normalized = [
       ...new Set(links.map((l) => (typeof l === "string" ? l.trim() : "")).filter(Boolean)),
     ];
 
-    // Log all links received
     console.log(`\n🧷 /phishlink received ${normalized.length} link(s):`);
     normalized.forEach((u, i) => console.log(`  [${i + 1}] ${u}`));
 
-    const results = await Promise.allSettled(normalized.map(checkWithPhishTank));
-
-    let parsed = results.map((r, idx) => {
-      if (r.status === "fulfilled") {
-        return r.value;
+    const results = normalized.map((link) => {
+      const keys = buildIndexKeys(link);
+      let matchedRecord = null;
+      let matchedKey = null;
+      for (const k of keys) {
+        if (phishUrlIndex.has(k)) {
+          matchedRecord = phishUrlIndex.get(k);
+          matchedKey = k;
+          break;
+        }
       }
+
+      if (!matchedRecord) {
+        return {
+          url: link,
+          inDatabase: false,
+          isPhish: null,
+          verified: false,
+          online: null,
+          phishId: null,
+          detailPage: null,
+          target: null,
+          source: "local-db",
+        };
+      }
+
+      const verified = String(matchedRecord.verified || "").toLowerCase() === "yes";
+      const online = String(matchedRecord.online || "").toLowerCase() === "yes";
       return {
-        url: normalized[idx],
-        inDatabase: false,
-        isPhish: null,
-        verified: false,
-        error: r.reason?.message || "Unknown error",
-        httpStatus: null,
+        url: link,
+        inDatabase: true,
+        isPhish: verified || online || true, // being in DB implies malicious intent
+        verified,
+        online,
+        phishId: matchedRecord.phish_id || null,
+        detailPage: matchedRecord.phish_detail_url || null,
+        target: matchedRecord.target || null,
+        matchedKey,
+        source: "local-db",
       };
     });
 
-    // URLHaus fallback checks for items not conclusively flagged by PhishTank
-    const urlhausResults = await Promise.allSettled(
-      parsed.map((r) => {
-        const needsFallback = r.error || r.inDatabase === false || r.isPhish !== true;
-        return needsFallback ? checkWithURLHaus(r.url) : Promise.resolve(null);
-      })
-    );
+    const detected = results.filter((r) => r.inDatabase === true);
 
-    // Attach URLHaus results per entry
-    parsed = parsed.map((r, i) => {
-      const uh = urlhausResults[i];
-      if (!uh) return r;
-      if (uh.status === "fulfilled" && uh.value) {
-        r.urlhaus = uh.value;
-      } else if (uh.status === "rejected") {
-        r.urlhaus = { error: uh.reason?.message || "URLHaus check failed" };
-      }
-      return r;
-    });
-
-    const detected = parsed.filter((p) => p.isPhish === true || p.urlhaus?.listed === true);
-
-    // Log per-link status summary
-    console.log("\n🧪 PhishTank results:");
-    parsed.forEach((r) => {
-      if (r.error) {
-        console.log(`  ✖ ${r.url} -> error: ${r.error}`);
+    // Log summary
+    console.log("\n🧪 Local DB results:");
+    results.forEach((r) => {
+      if (!r.inDatabase) {
+        console.log(`  • ${r.url} -> not found`);
       } else {
         console.log(
-          `  ✔ ${r.url} -> status=${r.httpStatus} inDB=${r.inDatabase} isPhish=${r.isPhish} verified=${r.verified} phishId=${r.phishId || "n/a"}`
-        );
-      }
-    });
-
-    console.log("\n🧪 URLHaus results (fallback):");
-    parsed.forEach((r) => {
-      if (!r.urlhaus) return;
-      if (r.urlhaus.error) {
-        console.log(`  ✖ ${r.url} -> URLHaus error: ${r.urlhaus.error}`);
-      } else {
-        console.log(
-          `  ✔ ${r.url} -> listed=${r.urlhaus.listed} status=${r.urlhaus.urlStatus || "n/a"} threat=${r.urlhaus.threat || "n/a"} ref=${r.urlhaus.reference || "n/a"}`
+          `  ✔ ${r.url} -> FOUND id=${r.phishId || "n/a"} verified=${r.verified} online=${r.online} target=${r.target || "n/a"}`
         );
       }
     });
 
     res.json({
       status: "success",
+      dbLoaded: localDbStats.loaded,
       total: normalized.length,
       detectedCount: detected.length,
-      results: parsed,
+      results,
     });
   } catch (err) {
     console.error("💥 /phishlink failed:", err);
@@ -778,184 +879,4 @@ app.post("/phishlink", async (req, res) => {
   }
 });
 
-/**
- * Query URLHaus v1 for a URL.
- * Returns normalized result: { listed: boolean, urlStatus, threat, reference, raw, error? }
- */
-async function checkWithURLHaus(urlToCheck) {
-  // URLHaus v1 expects form-encoded POST to /v1/url/ with field 'url'
-  const payload = querystring.stringify({
-    url: urlToCheck,
-  });
-
-  const urlObj = new URL(URLHAUS_API_BASE);
-  const resp = await httpRequestGeneric(
-    {
-      hostname: urlObj.hostname,
-      path: `${urlObj.pathname}`,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(payload),
-        Accept: "application/json, */*;q=0.1",
-        "User-Agent": PHISHTANK_USER_AGENT,
-        Referer: "https://localhost:3001/phishlink",
-        Origin: "https://localhost:3001",
-      },
-    },
-    payload
-  );
-
-  let json;
-  try {
-    json = JSON.parse(resp.bodyText);
-  } catch (e) {
-    const ct = resp.headers?.["content-type"] || "";
-    const preview = (resp.bodyText || "").slice(0, 160).replace(/\s+/g, " ");
-    return {
-      listed: false,
-      error: `Invalid JSON from URLHaus (status ${resp.statusCode}, content-type ${ct || "n/a"}, body: ${preview || "<empty>"})`,
-    };
-  }
-
-  // URLHaus v1: { query_status: 'ok' | 'no_results' | 'invalid_url', ... }
-  const listed = json?.query_status === "ok";
-  return {
-    listed: !!listed,
-    urlStatus: json?.url_status || null,
-    threat: json?.threat || null,
-    reference: json?.urlhaus_reference || null,
-    raw: json,
-  };
-}
-
-function httpRequestGeneric(options, body) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (resp) => {
-      let data = "";
-      resp.on("data", (chunk) => (data += chunk));
-      resp.on("end", () => {
-        resolve({
-          statusCode: resp.statusCode,
-          headers: resp.headers,
-          bodyText: data,
-        });
-      });
-    });
-    req.on("error", (e) => reject(e));
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-/**
- * Calls PhishTank checkurl API for a single URL.
- * Returns a normalized result object.
- */
-async function checkWithPhishTank(urlToCheck) {
-  const urlObj = new URL(PHISHTANK_ENDPOINT);
-
-  // Attempt 1: POST (official documented way)
-  const postData = querystring.stringify({
-    url: urlToCheck,
-    format: "json",
-  });
-
-  const postRes = await httpRequestPhishTank(
-    {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(postData),
-        Accept: "application/json, */*;q=0.1",
-        "User-Agent": PHISHTANK_USER_AGENT,
-      },
-    },
-    postData
-  );
-
-  let parsed = tryParsePhishTankJson(postRes.bodyText);
-  if (postRes.statusCode === 200 && parsed) {
-    return normalizePhishTankResult(urlToCheck, parsed, postRes.statusCode);
-  }
-
-  // Attempt 2: GET fallback (some WAFs reject non-browser POSTs)
-  const qs = querystring.stringify({
-    url: urlToCheck,
-    format: "json",
-  });
-  const getRes = await httpRequestPhishTank({
-    hostname: urlObj.hostname,
-    path: `${urlObj.pathname}?${qs}`,
-    method: "GET",
-    headers: {
-      Accept: "application/json, */*;q=0.1",
-      "User-Agent": PHISHTANK_USER_AGENT,
-    },
-  });
-
-  parsed = tryParsePhishTankJson(getRes.bodyText);
-  if (getRes.statusCode === 200 && parsed) {
-    return normalizePhishTankResult(urlToCheck, parsed, getRes.statusCode);
-  }
-
-  const status = getRes.statusCode ?? postRes.statusCode ?? null;
-  const ct = getRes.headers?.["content-type"] || postRes.headers?.["content-type"] || "";
-  const errMsg = parsed ? "Unknown error" : "Invalid JSON from PhishTank";
-  console.log(`  ↪ ${urlToCheck} -> status=${status} content-type=${ct || "n/a"} error=${errMsg}`);
-  return {
-    url: urlToCheck,
-    inDatabase: false,
-    isPhish: null,
-    verified: false,
-    error: errMsg,
-    httpStatus: status,
-  };
-}
-
-function tryParsePhishTankJson(text) {
-  try {
-    const json = JSON.parse(text);
-    return json && (json.results || json);
-  } catch (_) {
-    return null;
-  }
-}
-
-function normalizePhishTankResult(urlToCheck, r, httpStatus) {
-  const out = {
-    url: urlToCheck,
-    inDatabase: !!r?.in_database,
-    isPhish: r?.in_database ? r?.valid === true || r?.verified === true : false,
-    verified: !!r?.verified,
-    phishId: r?.phish_id || null,
-    detailPage: r?.phish_detail_page || null,
-    httpStatus: httpStatus || null,
-    raw: r,
-  };
-  console.log(
-    `  ↪ ${urlToCheck} -> status=${out.httpStatus} inDB=${out.inDatabase} isPhish=${out.isPhish} verified=${out.verified}`
-  );
-  return out;
-}
-
-function httpRequestPhishTank(options, body) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (resp) => {
-      let data = "";
-      resp.on("data", (chunk) => (data += chunk));
-      resp.on("end", () => {
-        resolve({
-          statusCode: resp.statusCode,
-          headers: resp.headers,
-          bodyText: data,
-        });
-      });
-    });
-    req.on("error", (e) => reject(e));
-    if (body) req.write(body);
-    req.end();
-  });
-}
+// (Removed) External URL checks and HTTP helpers now replaced by local DB lookup
