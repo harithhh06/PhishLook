@@ -5,6 +5,132 @@
 // Global variables
 let isAnalyzing = false;
 
+class OutlookNotificationSystem {
+    constructor() {
+        this.notificationKey = 'phishLookNotification';
+    }
+
+    showCalmingNotification(analysisResult) {
+        const suspicionScore = analysisResult.analysis.suspicionScore;
+        const riskLevel = analysisResult.analysis.riskLevel;
+
+        if (suspicionScore < 50) {
+            console.log('Score below threshold, no notification needed');
+            return; // Only show for high-risk emails
+        }
+
+        console.log('Showing calming notification bar...');
+
+        try {
+            // Create notification message based on risk level
+            let message = `Take a deep breath — there’s no rush. You’re in control and safe to review this carefully.`;
+
+            // Add the notification bar
+            Office.context.mailbox.item.notificationMessages.addAsync(
+                this.notificationKey,
+                {
+                    type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+                    message: message,
+                    icon: '🛡️',
+                    persistent: false // Auto-dismissible
+                },
+                (result) => {
+                    if (result.status === Office.AsyncResultStatus.Succeeded) {
+                        console.log('✅ Notification bar displayed successfully');
+                        
+                        // Auto-remove after 30 seconds
+                        setTimeout(() => {
+                            this.removeNotification();
+                        }, 30000);
+                    } else {
+                        console.error('❌ Failed to show notification:', result.error);
+                    }
+                }
+            );
+        } catch (error) {
+            console.error('Error showing notification:', error);
+        }
+    }
+
+    removeNotification() {
+        try {
+            Office.context.mailbox.item.notificationMessages.removeAsync(
+                this.notificationKey,
+                (result) => {
+                    if (result.status === Office.AsyncResultStatus.Succeeded) {
+                        console.log('Notification removed');
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Error removing notification:', e);
+        }
+    }
+
+    // Show success notification after analysis
+    showSuccessNotification() {
+        try {
+            Office.context.mailbox.item.notificationMessages.addAsync(
+                'phishLookSuccess',
+                {
+                    type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+                    message: '✅ PhishLook analysis complete. Check the task pane for results.',
+                    icon: '✅',
+                    persistent: false
+                },
+                (result) => {
+                    if (result.status === Office.AsyncResultStatus.Succeeded) {
+                        // Auto-remove after 5 seconds
+                        setTimeout(() => {
+                            Office.context.mailbox.item.notificationMessages.removeAsync(
+                                'phishLookSuccess'
+                            );
+                        }, 5000);
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Error showing success notification:', e);
+        }
+    }
+
+    // Show error notification
+    showErrorNotification(errorMessage) {
+        try {
+            Office.context.mailbox.item.notificationMessages.addAsync(
+                'phishLookError',
+                {
+                    type: Office.MailboxEnums.ItemNotificationMessageType.ErrorMessage,
+                    message: `❌ ${errorMessage}`,
+                    persistent: true // User must dismiss error messages
+                },
+                (result) => {
+                    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+                        console.error('Failed to show error notification:', result.error);
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Error showing error notification:', e);
+        }
+    }
+
+    // Clear all PhishLook notifications
+    clearAllNotifications() {
+        const keys = ['phishLookNotification', 'phishLookSuccess', 'phishLookError'];
+        keys.forEach(key => {
+            try {
+                Office.context.mailbox.item.notificationMessages.removeAsync(key);
+            } catch (e) {
+                // Ignore errors for non-existent notifications
+            }
+        });
+    }
+}
+
+// Create instance
+const notificationSystem = new OutlookNotificationSystem();
+
 // Wait for Office to be ready AND DOM to be loaded (with browser fallback)
 if (typeof Office !== "undefined" && Office.onReady) {
   Office.onReady((info) => {
@@ -268,6 +394,9 @@ function displayAIResults(result) {
 
     // Update recommendations
     updateRecommendations(analysis.riskLevel);
+
+    // show dialog if above a certain level
+    notificationSystem.showCalmingNotification(result);
 
     console.log("✅ Results displayed successfully");
   } catch (error) {
