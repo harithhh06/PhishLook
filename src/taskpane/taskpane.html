@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Email Security Analyzer</title>
-    
+
     <!-- Office.js -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-    
+
     <style>
         /* Simple, clean styling for the task pane */
         * {
@@ -49,7 +50,7 @@
             padding: 20px;
             border-radius: 8px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
 
@@ -69,7 +70,7 @@
 
         .analyze-btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,120,212,0.3);
+            box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
         }
 
         .analyze-btn:disabled {
@@ -126,7 +127,7 @@
             background: white;
             padding: 25px;
             border-radius: 8px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
             display: none;
             animation: slideIn 0.5s ease;
         }
@@ -136,24 +137,26 @@
         }
 
         @keyframes slideIn {
-            from { 
-                opacity: 0; 
-                transform: translateY(20px); 
+            from {
+                opacity: 0;
+                transform: translateY(20px);
             }
-            to { 
-                opacity: 1; 
-                transform: translateY(0); 
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
             }
         }
 
         @keyframes scoreAppear {
-            from { 
-                opacity: 0; 
-                transform: scale(0.5); 
+            from {
+                opacity: 0;
+                transform: scale(0.5);
             }
-            to { 
-                opacity: 1; 
-                transform: scale(1); 
+
+            to {
+                opacity: 1;
+                transform: scale(1);
             }
         }
 
@@ -205,9 +208,17 @@
             margin-bottom: 10px;
         }
 
-        .risk-level.low { color: #107c10; }
-        .risk-level.medium { color: #ff8c00; }
-        .risk-level.high { color: #d13438; }
+        .risk-level.low {
+            color: #107c10;
+        }
+
+        .risk-level.medium {
+            color: #ff8c00;
+        }
+
+        .risk-level.high {
+            color: #d13438;
+        }
 
         .explanation-section {
             background: #f8f9fa;
@@ -258,6 +269,9 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            word-wrap: break-word;
+            word-break: break-all;
+            overflow-wrap: break-word;
         }
 
         .breakdown-section li:last-child {
@@ -268,6 +282,32 @@
             content: "•";
             color: #d83b01;
             font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        /* Special styles for link lists */
+        .breakdown-section ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .breakdown-section .link-item {
+            background: #f8f9fa;
+            padding: 8px;
+            margin: 4px 0;
+            border-radius: 4px;
+            border-left: 3px solid #0078d4;
+            word-wrap: break-word;
+            word-break: break-all;
+            overflow-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.3;
+        }
+
+        .breakdown-section .phishing-link {
+            border-left-color: #d13438;
+            background: #fde7e9;
         }
 
         .recommendations-section {
@@ -325,13 +365,13 @@
             body {
                 padding: 10px;
             }
-            
+
             .score-circle {
                 width: 80px;
                 height: 80px;
                 font-size: 18px;
             }
-            
+
             .analyze-btn {
                 padding: 12px 20px;
                 font-size: 14px;
@@ -339,6 +379,7 @@
         }
     </style>
 </head>
+
 <body>
     <!-- Header -->
     <div class="header">
@@ -363,7 +404,7 @@
         <button class="analyze-btn" id="analyze-btn">
             🤖 Analyze Current Email with AI
         </button>
-        
+
         <!-- Status Messages -->
         <div class="status" id="status"></div>
     </div>
@@ -425,4 +466,5 @@
     <!-- JavaScript -->
     <script src="taskpane.js"></script>
 </body>
+
 </html>

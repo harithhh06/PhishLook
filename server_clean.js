@@ -16,9 +16,7 @@ const { SimpleSuspiciousnessDetector } = require("./detectors/SimpleSuspiciousne
 const { OllamaDetector } = require("./detectors/OllamaDetector");
 
 const detector = new SimpleSuspiciousnessDetector();
-const ollamaDetector = new OllamaDetector({
-  timeout: 30000 // 30 seconds timeout for AI responses
-});
+const ollamaDetector = new OllamaDetector();
 
 // ====================
 // LOCAL PHISHING DB (phishing_database.json)
@@ -208,28 +206,17 @@ app.post("/api/analyze-with-ai", async (req, res) => {
     }
 
     const stats = ollamaDetector.getStats();
-    console.log("🤖 Analyzing with Ollama AI...");
-    
-    let aiAnalysis = null;
-    let aiError = null;
-    
-    try {
-      // Always attempt to call Ollama, even if stats show it's unavailable
-      // This gives Ollama a chance to respond if it became available
-      aiAnalysis = await ollamaDetector.analyzeEmail(emailData);
-      console.log("✅ AI analysis successful");
-    } catch (error) {
-      console.warn("⚠️ AI analysis failed, will include error in response:", error.message);
-      aiError = error.message;
-      aiAnalysis = {
-        error: error.message,
-        riskLevel: "unknown",
-        confidence: 0,
-        explanation: "AI analysis failed: " + error.message,
-        recommendation: "Please rely on traditional analysis results",
-        timestamp: new Date().toISOString()
-      };
+    if (!stats.available) {
+      return res.status(503).json({
+        status: "error",
+        message: "Ollama AI is not available",
+        error: stats.error,
+        fallback: "Use /api/analyze-suspiciousness for heuristic analysis",
+      });
     }
+
+    console.log("🤖 Analyzing with Ollama AI...");
+    const aiAnalysis = await ollamaDetector.analyzeEmail(emailData);
 
     // Also run traditional analysis for comparison
     const traditionalAnalysis = detector.analyzeEmail(emailData);
@@ -239,7 +226,6 @@ app.post("/api/analyze-with-ai", async (req, res) => {
       timestamp: new Date().toISOString(),
       ai_analysis: aiAnalysis,
       traditional_analysis: traditionalAnalysis,
-      ai_error: aiError,
       email_info: {
         subject: emailData.subject || "No subject",
         sender: emailData.sender || "Unknown",

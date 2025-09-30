@@ -329,7 +329,7 @@ async function callAIBackend(emailData) {
   console.log("🌐 Calling AI backend...");
 
   try {
-    const response = await fetch("https://localhost:3001/api/analyze-suspiciousness", {
+    const response = await fetch("https://localhost:3001/api/analyze-with-ai", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -369,8 +369,9 @@ function displayAIResults(result) {
   console.log("🎨 Displaying AI results...");
 
   try {
-    // Get the analysis data
-    const analysis = result.analysis;
+    // Get the analysis data (use traditional analysis for main display)
+    const analysis = result.traditional_analysis;
+    const aiAnalysis = result.ai_analysis;
 
     if (!analysis) {
       throw new Error("No analysis data received from backend");
@@ -383,17 +384,20 @@ function displayAIResults(result) {
       resultsSection.classList.add("show");
     }
 
-    // Update suspicion score circle
+    // Update suspicion score circle (using traditional analysis)
     updateSuspicionScore(analysis.suspicionScore, analysis.riskLevel);
 
-    // Update explanation text
+    // Update explanation text (using traditional analysis)
     updateExplanation(analysis.explanation);
 
-    // Update detailed breakdown
+    // Update detailed breakdown (using traditional analysis)
     updateDetailedBreakdown(analysis.details);
 
-    // Update recommendations
+    // Update recommendations (using traditional analysis)
     updateRecommendations(analysis.riskLevel);
+
+    // Add AI analysis display at the bottom
+    displayAIAnalysis(aiAnalysis);
 
     // show dialog if above a certain level
     notificationSystem.showCalmingNotification(result);
@@ -1134,6 +1138,9 @@ async function callPhishLinkApi(links) {
 }
 
 function displayPhishLinks(result) {
+  if (result!== null) {
+    updateSuspicionScore(100, "high");
+  }
   const container = safeGetElement("phish-results");
   const list = safeGetElement("phish-links-list");
   if (!container || !list) return;
@@ -1141,23 +1148,23 @@ function displayPhishLinks(result) {
   container.style.display = "block";
 
   if (!result || !Array.isArray(result.results) || result.results.length === 0) {
-    list.textContent = "No phishing link detected.";
+    list.innerHTML = "<div style='text-align: center; color: #666; padding: 10px;'>No phishing link detected.</div>";
     return;
   }
 
   const bad = result.results.filter((r) => r.isPhish === true);
   if (bad.length === 0) {
-    list.textContent = "No phishing link detected.";
+    list.innerHTML = "<div style='text-align: center; color: #666; padding: 10px;'>No phishing link detected.</div>";
     return;
   }
 
   const items = bad
     .map((r) => {
-      const detail = r.detailPage ? ` — details: ${r.detailPage}` : "";
-      return `<li><strong>⚠️ ${escapeHtml(r.url)}</strong>${detail}</li>`;
+      const detail = r.detailPage ? `<div style='margin-top: 4px; font-size: 11px; color: #666;'>Details: ${escapeHtml(r.detailPage)}</div>` : "";
+      return `<div class="link-item phishing-link"><strong>⚠️ ${escapeHtml(r.url)}</strong>${detail}</div>`;
     })
     .join("");
-  list.innerHTML = `<ul>${items}</ul>`;
+  list.innerHTML = items;
 }
 
 function escapeHtml(s) {
@@ -1170,6 +1177,65 @@ function escapeHtml(s) {
 }
 
 // ====================
+// AI ANALYSIS DISPLAY
+// ====================
+function displayAIAnalysis(aiAnalysis) {
+  console.log("🤖 Displaying AI analysis...");
+  
+  // Find or create AI analysis section
+  let aiSection = safeGetElement("ai-analysis-section");
+  if (!aiSection) {
+    // Create the AI analysis section dynamically
+    const phishResults = safeGetElement("phish-results");
+    if (phishResults) {
+      aiSection = document.createElement("div");
+      aiSection.id = "ai-analysis-section";
+      aiSection.className = "ai-results";
+      aiSection.style.marginTop = "16px";
+      aiSection.innerHTML = `
+        <div class="breakdown-section">
+          <h4>🤖 AI Analysis</h4>
+          <div id="ai-explanation-content">
+            <div class="ai-explanation-item">
+              <strong>AI Explanation:</strong>
+              <div id="ai-explanation-text" style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 13px; line-height: 1.4;">Loading AI analysis...</div>
+            </div>
+            <div class="ai-recommendation-item" style="margin-top: 15px;">
+              <strong>AI Recommendation:</strong>
+              <div id="ai-recommendation-text" style="margin-top: 8px; padding: 10px; background: #e3f2fd; border-radius: 4px; font-size: 13px; line-height: 1.4; border-left: 4px solid #1976d2;">Loading AI recommendation...</div>
+            </div>
+            <div class="ai-metadata" style="margin-top: 10px; font-size: 12px; color: #666;">
+              <div id="ai-model-info">Model: Loading...</div>
+              <div id="ai-confidence-info">Confidence: Loading...</div>
+            </div>
+          </div>
+        </div>
+      `;
+      phishResults.parentNode.insertBefore(aiSection, phishResults.nextSibling);
+    }
+  }
+  
+  if (aiSection) {
+    aiSection.style.display = "block";
+    
+    if (aiAnalysis && !aiAnalysis.error) {
+      // Display successful AI analysis
+      safeSetText("ai-explanation-text", aiAnalysis.explanation || "No explanation provided");
+      safeSetText("ai-recommendation-text", aiAnalysis.recommendation || "No recommendation provided");
+      safeSetText("ai-model-info", `Model: ${aiAnalysis.model || "Unknown"} (${aiAnalysis.responseTime || 0}ms)`);
+      safeSetText("ai-confidence-info", `Confidence: ${aiAnalysis.confidence || 0}% | Risk Level: ${aiAnalysis.riskLevel || "Unknown"}`);
+    } else {
+      // Display error or fallback
+      const errorMsg = aiAnalysis?.error || "AI analysis not available";
+      safeSetText("ai-explanation-text", `Error: ${errorMsg}`);
+      safeSetText("ai-recommendation-text", "Please rely on traditional analysis above");
+      safeSetText("ai-model-info", "AI Model: Unavailable");
+      safeSetText("ai-confidence-info", "Confidence: N/A");
+    }
+  }
+}
+
+// ====================
 // LINKS FOUND RENDERING
 // ====================
 function showLinksFound(links) {
@@ -1179,10 +1245,10 @@ function showLinksFound(links) {
   container.style.display = "block";
 
   if (!Array.isArray(links) || links.length === 0) {
-    list.textContent = "No links found.";
+    list.innerHTML = "<div style='text-align: center; color: #666; padding: 10px;'>No links found.</div>";
     return;
   }
 
-  const items = links.map((u) => `<li>${escapeHtml(u)}</li>`).join("");
-  list.innerHTML = `<ul>${items}</ul>`;
+  const items = links.map((u) => `<div class="link-item">${escapeHtml(u)}</div>`).join("");
+  list.innerHTML = items;
 }
