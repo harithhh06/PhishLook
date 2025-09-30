@@ -88,7 +88,7 @@ PhishLook uses a weighted scoring algorithm (0-100 scale):
 
 ### Prerequisites
 - Node.js 14+ and npm
-- Outlook Web 
+- Outlook Web (This extension only works with the web version of Outlook)
 
 ### Installation & Setup
 
@@ -110,16 +110,20 @@ npx webpack serve --mode development
 
 3. **Load in Outlook**:
    - Open Outlook Web
-   - Go to Add-ins → Upload Manifest
-   - Select `manifest.xml` from project root
+   - Go to Add-ins → Get Add-ins
+   - Select `My Addins` > `Custom Addins` > `Add from file...`
+   - Navigate to your Phishlook folder and open `manifest.xml` the click "Install"
+   - From your Add-ins tab, select Phishlook to run it
    - PhishLook will appear on the right side of the outlook UI
 
-### Local Testing (Browser Mode)
+![PhishLook Extension in Outlook](assets/phishlookUI.png)
 
-For development without Outlook:
-1. Navigate to `https://localhost:3000/taskpane/taskpane.html`
-2. Use the built-in test scenarios to validate detection features
-3. View console logs for detailed analysis breakdowns
+4. **Using Phishlook**
+    * Click`Test with sample email` to see different output results for some sample test emails
+
+    * To test on an actual email
+        * Open a selected email
+        * Click `Analyse current email with AI`
 
 ## 🧪 Comprehensive Testing
 
