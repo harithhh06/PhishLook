@@ -108,7 +108,27 @@ node server.js
 npx webpack serve --mode development 
 ```
 
-3. **Load in Outlook**:
+3. **Hosting a local LLM**
+    * Go to [ollama](https://ollama.ai/download)
+    * Download the installer for your device (mac/windows/linux etc.)
+    ```bash
+    # Run the installer and verify it is downloaded
+    ollama --version
+
+    # Pull the model 
+    ollama pull llama3.1:8b
+
+    # Verify the model has been installed correctly
+    ollama list
+
+    # To run the AI
+    ollama run llama3.1:8b
+
+    # Verify the model is running (should return 200 ok)
+    curl http://localhost:11434/api/tags
+    ```
+
+4. **Load in Outlook**:
    - Open Outlook Web
    - Go to Add-ins → Get Add-ins
    - Select `My Addins` > `Custom Addins` > `Add from file...`
@@ -118,7 +138,7 @@ npx webpack serve --mode development
 
 ![PhishLook Extension in Outlook](assets/phishlookUI.png)
 
-4. **Using Phishlook**
+5. **Using Phishlook**
     * Click`Test with sample email` to see different output results for some sample test emails
 
     * To test on an actual email
@@ -197,18 +217,6 @@ PhishLook/
 - **Advanced Attachment Scanning**: Behavioral analysis and sandboxing
 - **Integration APIs**: Connect with enterprise security platforms
 - **Multi-language Support**: Localized detection for global deployment
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🆘 Support
 
