@@ -7,7 +7,7 @@ class OllamaDetector {
   constructor(options = {}) {
     this.baseUrl = options.baseUrl || process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     this.model = options.model || process.env.OLLAMA_MODEL || "llama3.1:8b";
-    this.timeout = options.timeout || parseInt(process.env.OLLAMA_TIMEOUT) || 30000;
+    this.timeout = options.timeout || parseInt(process.env.OLLAMA_TIMEOUT) || 30000; // 30 seconds default
 
     this.stats = {
       available: false,
@@ -69,8 +69,14 @@ class OllamaDetector {
    * Make a raw call to Ollama API
    */
   async callOllama(prompt, systemPrompt = null, options = {}) {
+    // Try to check health first if we haven't recently
+    if (!this.stats.available || !this.stats.lastChecked) {
+      console.log("🔄 Attempting to reconnect to Ollama...");
+      await this.checkHealth();
+    }
+    
     if (!this.stats.available) {
-      throw new Error("Ollama is not available. Run checkHealth() first.");
+      throw new Error(`Ollama is not available: ${this.stats.error || "Connection failed"}`);
     }
 
     const payload = {
@@ -115,6 +121,7 @@ class OllamaDetector {
         (this.stats.averageResponseTime * (this.stats.successfulRequests - 1) + responseTime) /
         this.stats.successfulRequests;
 
+      console.log(`The response is: `, data);
       console.log(`✅ Ollama response received in ${responseTime}ms`);
 
       return {
@@ -238,7 +245,28 @@ Remember: Respond with valid JSON only, no additional text or formatting.`;
    */
   parseAnalysisResult(result, originalEmailData) {
     try {
-      const analysis = JSON.parse(result.response);
+      let jsonString = result.response;
+      
+      // Extract JSON from markdown code blocks if present
+      if (jsonString.includes('```json')) {
+        const jsonMatch = jsonString.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+          jsonString = jsonMatch[1].trim();
+        }
+      } else if (jsonString.includes('```')) {
+        // Handle generic code blocks that might contain JSON
+        const codeMatch = jsonString.match(/```\s*([\s\S]*?)\s*```/);
+        if (codeMatch && codeMatch[1]) {
+          jsonString = codeMatch[1].trim();
+        }
+      }
+      
+      // Clean up any remaining markdown or extra text
+      jsonString = jsonString.trim();
+      
+      console.log("🔍 Parsing AI response:", jsonString.substring(0, 200) + "...");
+      
+      const analysis = JSON.parse(jsonString);
 
       // Validate required fields and provide defaults
       const validatedAnalysis = {
@@ -273,6 +301,7 @@ Remember: Respond with valid JSON only, no additional text or formatting.`;
       return validatedAnalysis;
     } catch (parseError) {
       console.warn("🤖 Failed to parse AI response as JSON:", parseError.message);
+      console.warn("🤖 Raw response was:", result.response);
 
       // Return a fallback analysis
       return {
